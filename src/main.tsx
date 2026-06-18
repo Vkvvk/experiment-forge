@@ -459,7 +459,7 @@ function IntakePage({
 
         {inputMode === "paste" ? (
           <>
-            <label className="paste-zone">
+            <label className={pasteContent.trim() ? "paste-zone has-content" : "paste-zone"}>
               <span className="paste-icon">
                 <FileText size={28} />
               </span>
@@ -469,7 +469,7 @@ function IntakePage({
                 aria-label="Paste plan content"
                 value={pasteContent}
                 onChange={(event) => setPasteContent(event.target.value)}
-                placeholder="Paste anything messy here. We will scan for the idea, target user, problem, evidence, and proposed test."
+                placeholder=""
               />
             </label>
             <p className="examples">Examples: PRD, Jira ticket, Notion doc, experiment brief, idea doc</p>
