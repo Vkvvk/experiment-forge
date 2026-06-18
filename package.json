@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "node server.mjs",
+    "start": "npm run build && node server.mjs",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"
   },

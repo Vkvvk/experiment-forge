@@ -21,6 +21,7 @@ import {
   ThumbsUp,
   TrendingUp,
   Wand2,
+  X,
 } from "lucide-react";
 import "./styles.css";
 
@@ -47,6 +48,17 @@ type Critique = {
   id: string;
   submissionId: string;
   createdAt: string;
+  proposedExperimentSummary?: string;
+  proposedExperimentType?: string;
+  productRiskType?: "value" | "usability" | "feasibility" | "viability" | "mixed";
+  experimentDesignIssue?:
+    | "wrong_method"
+    | "vague_criteria"
+    | "missing_decision"
+    | "weak_evidence"
+    | "premature_behavior_test"
+    | "needs_calibration"
+    | "none";
   primaryRiskType: "value" | "usability" | "feasibility" | "viability" | "mixed";
   riskExplanation: string;
   weakestAssumption: string;
@@ -64,6 +76,12 @@ type Critique = {
 type Submission = SubmissionInput & {
   id: string;
   createdAt: string;
+};
+
+type DetailModalState = {
+  eyebrow?: string;
+  title: string;
+  body: string;
 };
 
 type AdminRow = {
@@ -124,6 +142,37 @@ const emptyEvaluation = {
   selfReportedChangedPlan: false,
   selfReportedValue: 3,
 };
+
+const scanSteps = [
+  {
+    label: "Preparing your plan",
+    detail: "Packaging the idea, user, problem, evidence, and proposed experiment for review.",
+  },
+  {
+    label: "Finding the proposed test",
+    detail: "Reading the actual experiment you proposed before judging whether it fits.",
+  },
+  {
+    label: "Diagnosing risk",
+    detail: "Separating value, usability, feasibility, viability, and experiment-design issues.",
+  },
+  {
+    label: "Checking experiment fit",
+    detail: "Looking for mismatches, vague criteria, missing decisions, or weak evidence.",
+  },
+  {
+    label: "Choosing the next test",
+    detail: "Selecting the smallest stronger experiment that should answer the riskiest question.",
+  },
+  {
+    label: "Tightening signals",
+    detail: "Turning pass/fail criteria into observable evidence with thresholds and consequences.",
+  },
+  {
+    label: "Formatting the X-Ray",
+    detail: "Compressing the critique into readable sections instead of one giant AI note.",
+  },
+];
 
 function App() {
   const [mode, setMode] = useState<"critique" | "study" | "admin">("critique");
@@ -344,6 +393,7 @@ function App() {
                 <Send size={16} />
                 {loading ? "Critiquing..." : "Run critique"}
               </button>
+              {loading && <ScanProgress />}
             </section>
             <section className="panel">
               <h2>Revised plan</h2>
@@ -484,9 +534,10 @@ function IntakePage({
         )}
 
         <button className="primary wide xray-submit" disabled={!canSubmit || loading} onClick={onSubmit}>
-          {loading ? "Scanning..." : "Get my X-ray"}
+          {loading ? "Building your X-Ray" : "Get my X-ray"}
           <ArrowRight size={18} />
         </button>
+        {loading && <ScanProgress />}
       </section>
 
       <div className="feature-strip">
@@ -519,6 +570,45 @@ function FeatureTile({ icon, title, text }: { icon: React.ReactNode; title: stri
         <p>{text}</p>
       </div>
     </article>
+  );
+}
+
+function ScanProgress({ compact = false }: { compact?: boolean }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 600);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const stepIndex = Math.min(scanSteps.length - 1, Math.floor(elapsedSeconds / 3));
+  const step = scanSteps[stepIndex];
+  const progress = Math.min(94, 10 + stepIndex * 13 + Math.min(10, (elapsedSeconds % 3) * 3));
+  const visibleSteps = scanSteps.slice(Math.max(0, stepIndex - 1), Math.min(scanSteps.length, stepIndex + 2));
+
+  return (
+    <div className={compact ? "scan-progress compact" : "scan-progress"} aria-live="polite">
+      <div className="scan-progress-head">
+        <span>{step.label}</span>
+        <em>{elapsedSeconds < 3 ? "Starting" : `${elapsedSeconds}s`}</em>
+      </div>
+      <div className="scan-track" aria-hidden="true">
+        <span style={{ width: `${progress}%` }} />
+      </div>
+      <p>{step.detail}</p>
+      {!compact && (
+        <div className="scan-step-list">
+          {visibleSteps.map((item) => (
+            <span className={item.label === step.label ? "active" : ""} key={item.label}>
+              {item.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -588,8 +678,9 @@ function ActionPanel({
       <p className="muted">Required fields are the first five. Optional context improves confidence but should not slow you down.</p>
       <button className="primary wide" disabled={!canSubmit || loading} onClick={onSubmit}>
         <Send size={16} />
-        {loading ? "Scanning..." : "Generate X-Ray"}
+        {loading ? "Building your X-Ray" : "Generate X-Ray"}
       </button>
+      {loading && <ScanProgress compact />}
       <button className="secondary wide" onClick={onReset}>
         <RefreshCcw size={16} />
         Start another critique
@@ -642,6 +733,12 @@ function XrayReport({
   saveFeedback: (feedback?: FeedbackState) => void;
 }) {
   const primaryExperiment = critique.recommendedExperiments[0];
+  const planLines = compactPlanLines(critique.revisedLearningPlan);
+  const riskType = critique.productRiskType ?? critique.primaryRiskType;
+  const designIssue = formatDesignIssue(critique.experimentDesignIssue);
+  const [detailModal, setDetailModal] = useState<DetailModalState | null>(null);
+  const openDetail = (detail: DetailModalState) => setDetailModal(detail);
+
   return (
     <section className="xray-report">
       <div className="xray-hero">
@@ -657,14 +754,50 @@ function XrayReport({
       </div>
 
       <div className="xray-summary">
-        <SummaryCell icon={<AlertTriangle size={24} />} label="Primary risk" title={`${critique.primaryRiskType} risk`} tone="risk">
-          {critique.primaryRiskType === "value" ? "Will users find enough value to change behavior?" : critique.riskExplanation}
+        <SummaryCell
+          icon={<AlertTriangle size={24} />}
+          label="Product risk"
+          title={`${riskType} risk`}
+          tone="risk"
+          fullText={critique.riskExplanation}
+          max={150}
+          onOpen={() => openDetail({ eyebrow: "Product risk", title: `${riskType} risk`, body: critique.riskExplanation })}
+        >
+          {riskType === "value" ? "Will users find enough value to change behavior?" : plainPreview(critique.riskExplanation, 150)}
         </SummaryCell>
-        <SummaryCell icon={<FileText size={24} />} label="Your proposed test" title={summarizeTest(submission?.proposedExperiment)} tone="test">
-          {submission?.proposedExperiment || "No proposed experiment captured."}
+        <SummaryCell
+          icon={<FileText size={24} />}
+          label="Parsed proposed test"
+          title={critique.proposedExperimentType || summarizeTest(submission?.proposedExperiment)}
+          tone="test"
+          fullText={critique.proposedExperimentSummary || submission?.proposedExperiment || "No proposed experiment captured."}
+          max={140}
+          onOpen={() =>
+            openDetail({
+              eyebrow: "Parsed proposed test",
+              title: critique.proposedExperimentType || summarizeTest(submission?.proposedExperiment),
+              body: critique.proposedExperimentSummary || submission?.proposedExperiment || "No proposed experiment captured.",
+            })
+          }
+        >
+          {plainPreview(critique.proposedExperimentSummary || submission?.proposedExperiment || "No proposed experiment captured.", 140)}
         </SummaryCell>
-        <SummaryCell icon={<Star size={24} />} label="Experiment fit" title={`${critique.experimentFit} fit`} tone={critique.experimentFit}>
-          {critique.experimentFitExplanation}
+        <SummaryCell
+          icon={<Star size={24} />}
+          label={designIssue ? "Design issue" : "Experiment fit"}
+          title={designIssue || `${critique.experimentFit} fit`}
+          tone={critique.experimentFit}
+          fullText={critique.experimentFitExplanation}
+          max={150}
+          onOpen={() =>
+            openDetail({
+              eyebrow: designIssue ? "Design issue" : "Experiment fit",
+              title: designIssue || `${critique.experimentFit} fit`,
+              body: critique.experimentFitExplanation,
+            })
+          }
+        >
+          {plainPreview(critique.experimentFitExplanation, 150)}
         </SummaryCell>
       </div>
 
@@ -676,16 +809,29 @@ function XrayReport({
         <div className="diagnosis-grid">
           <div>
             <p className="eyebrow">Weakest assumption</p>
-            <strong>{critique.weakestAssumption}</strong>
+            <strong>{plainPreview(critique.weakestAssumption, 180)}</strong>
+            <DetailButton text={critique.weakestAssumption} max={180} onClick={() => openDetail({ eyebrow: "Weakest assumption", title: "Weakest assumption", body: critique.weakestAssumption })} />
           </div>
           <div>
             <p className="eyebrow">Why this is risky</p>
-            <p>{critique.assumptionExplanation}</p>
+            <p>{plainPreview(critique.assumptionExplanation, 220)}</p>
+            <DetailButton text={critique.assumptionExplanation} max={220} onClick={() => openDetail({ eyebrow: "Why this is risky", title: "Assumption rationale", body: critique.assumptionExplanation })} />
           </div>
           <div className="next-experiment">
             <p className="eyebrow">Recommended next experiment</p>
             <h3>{primaryExperiment?.name || "No recommendation"}</h3>
-            <p>{primaryExperiment?.whyItFits || critique.riskExplanation}</p>
+            <p>{plainPreview(primaryExperiment?.whyItFits || critique.riskExplanation, 180)}</p>
+            <DetailButton
+              text={primaryExperiment?.whyItFits || critique.riskExplanation}
+              max={180}
+              onClick={() =>
+                openDetail({
+                  eyebrow: "Recommended next experiment",
+                  title: primaryExperiment?.name || "No recommendation",
+                  body: primaryExperiment?.whyItFits || critique.riskExplanation,
+                })
+              }
+            />
           </div>
           <div className="signal-row">
             <p className="eyebrow">Pass / fail signal</p>
@@ -694,20 +840,71 @@ function XrayReport({
                 <Check size={18} />
                 <span>
                   <strong>Pass</strong>
-                  {critique.passCriteria[0]}
+                  {plainPreview(critique.passCriteria[0], 180)}
+                  <DetailButton
+                    text={critique.passCriteria.join("\n")}
+                    previewText={critique.passCriteria[0]}
+                    max={180}
+                    onClick={() =>
+                      openDetail({
+                        eyebrow: "Pass criteria",
+                        title: "What would mean continue",
+                        body: critique.passCriteria.length ? critique.passCriteria.join("\n") : "No pass criteria generated.",
+                      })
+                    }
+                  />
                 </span>
               </div>
               <div className="signal fail">
                 <AlertTriangle size={18} />
                 <span>
                   <strong>Fail</strong>
-                  {critique.failCriteria[0]}
+                  {plainPreview(critique.failCriteria[0], 180)}
+                  <DetailButton
+                    text={critique.failCriteria.join("\n")}
+                    previewText={critique.failCriteria[0]}
+                    max={180}
+                    onClick={() =>
+                      openDetail({
+                        eyebrow: "Fail criteria",
+                        title: "What would mean stop or change",
+                        body: critique.failCriteria.length ? critique.failCriteria.join("\n") : "No fail criteria generated.",
+                      })
+                    }
+                  />
                 </span>
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      {primaryExperiment && (
+        <section className="action-plan-panel">
+          <div>
+            <p className="eyebrow">What to run next</p>
+            <h2>{primaryExperiment.name}</h2>
+            <p>{plainPreview(primaryExperiment.purpose, 180)}</p>
+            <DetailButton text={primaryExperiment.purpose} max={180} onClick={() => openDetail({ eyebrow: "What to run next", title: primaryExperiment.name, body: primaryExperiment.purpose })} />
+          </div>
+          <div className="compact-steps">
+            {primaryExperiment.howToRun.slice(0, 3).map((step, index) => (
+              <div className="compact-step" key={`${step}-${index}`}>
+                <span>{index + 1}</span>
+                <p>{plainPreview(step, 140)}</p>
+                <DetailButton text={step} max={140} onClick={() => openDetail({ eyebrow: `Step ${index + 1}`, title: "How to run it", body: step })} />
+              </div>
+            ))}
+          </div>
+          <div className="signal-note">
+            <strong>Signal to watch</strong>
+            <p>{plainPreview(primaryExperiment.signalToLookFor, 180)}</p>
+            <DetailButton text={primaryExperiment.signalToLookFor} max={180} onClick={() => openDetail({ eyebrow: "Signal to watch", title: "Evidence to watch", body: primaryExperiment.signalToLookFor })} />
+          </div>
+        </section>
+      )}
+
+      {detailModal && <DetailModal detail={detailModal} onClose={() => setDetailModal(null)} />}
 
       <section className="xray-confirm">
         <h2>Does this X-Ray look right?</h2>
@@ -770,9 +967,36 @@ function XrayReport({
         </section>
       )}
 
-      <section className="panel">
-        <h2>Revised learning plan</h2>
-        <pre>{critique.revisedLearningPlan}</pre>
+      <section className="learning-plan-card">
+        <div className="learning-plan-head">
+          <div>
+            <p className="eyebrow">Copyable plan</p>
+            <h2>Revised learning plan</h2>
+          </div>
+          <button className="secondary" onClick={() => navigator.clipboard?.writeText(critique.revisedLearningPlan)}>
+            <Clipboard size={16} />
+            Copy full plan
+          </button>
+        </div>
+        <div className="plan-preview">
+          {planLines.map((line, index) => (
+            <div className="plan-preview-item" key={`${line}-${index}`}>
+              <p>{line}</p>
+              <DetailButton
+                text={critique.revisedLearningPlan}
+                previewText={line}
+                max={170}
+                onClick={() =>
+                  openDetail({
+                    eyebrow: "Revised learning plan",
+                    title: "Full learning plan",
+                    body: critique.revisedLearningPlan,
+                  })
+                }
+              />
+            </div>
+          ))}
+        </div>
       </section>
     </section>
   );
@@ -783,12 +1007,18 @@ function SummaryCell({
   label,
   title,
   tone,
+  fullText,
+  max = 160,
+  onOpen,
   children,
 }: {
   icon: React.ReactNode;
   label: string;
   title: string;
   tone: string;
+  fullText?: string;
+  max?: number;
+  onOpen?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -798,7 +1028,48 @@ function SummaryCell({
         <p className="eyebrow">{label}</p>
         <h3>{title}</h3>
         <p>{children}</p>
+        {onOpen && <DetailButton text={fullText} previewText={String(children ?? "")} max={max} onClick={onOpen} />}
       </div>
+    </div>
+  );
+}
+
+function DetailButton({ text, previewText, max = 160, onClick }: { text?: string; previewText?: string; max?: number; onClick: () => void }) {
+  if (!shouldShowDetail(text, max, previewText)) return null;
+  return (
+    <button className="read-full-link" onClick={onClick} type="button">
+      Read full
+    </button>
+  );
+}
+
+function DetailModal({ detail, onClose }: { detail: DetailModalState; onClose: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <article className="detail-modal" role="dialog" aria-modal="true" aria-label={detail.title} onMouseDown={(event) => event.stopPropagation()}>
+        <button className="modal-close" onClick={onClose} type="button" aria-label="Close detail view">
+          <X size={18} />
+        </button>
+        {detail.eyebrow && <p className="eyebrow">{detail.eyebrow}</p>}
+        <h2>{detail.title}</h2>
+        <div className="modal-copy">
+          {detail.body
+            .split("\n")
+            .map((line) => stripMarkdown(line))
+            .filter(Boolean)
+            .map((line, index) => (
+              <p key={`${line}-${index}`}>{line}</p>
+            ))}
+        </div>
+      </article>
     </div>
   );
 }
@@ -819,6 +1090,51 @@ function summarizeTest(text?: string) {
   if (/fake door|opt/i.test(text)) return "Fake-door test";
   if (/survey/i.test(text)) return "Survey";
   return text.split(/[.:\n]/)[0].slice(0, 42);
+}
+
+function formatDesignIssue(issue?: Critique["experimentDesignIssue"]) {
+  const labels: Record<NonNullable<Critique["experimentDesignIssue"]>, string> = {
+    wrong_method: "Wrong method",
+    vague_criteria: "Vague criteria",
+    missing_decision: "Missing decision",
+    weak_evidence: "Weak evidence",
+    premature_behavior_test: "Premature behavior test",
+    needs_calibration: "Needs calibration",
+    none: "",
+  };
+  return issue ? labels[issue] : "";
+}
+
+function stripMarkdown(text = "") {
+  return text
+    .replace(/\|[-:\s|]+\|/g, " ")
+    .replace(/[`*_>#]/g, "")
+    .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function plainPreview(text = "", max = 160) {
+  const stripped = stripMarkdown(text);
+  if (stripped.length <= max) return stripped;
+  return `${stripped.slice(0, max - 1).trim()}…`;
+}
+
+function shouldShowDetail(text = "", max = 160, previewText?: string) {
+  const stripped = stripMarkdown(text);
+  const preview = stripMarkdown(previewText ?? plainPreview(text, max));
+  if (!stripped) return false;
+  return stripped.length > max || stripped !== preview;
+}
+
+function compactPlanLines(markdown = "") {
+  const lines = markdown
+    .split("\n")
+    .map((line) => stripMarkdown(line.replace(/^[-\d.]+\s*/, "")))
+    .filter((line) => line && !line.includes("|"))
+    .slice(0, 6)
+    .map((line) => plainPreview(line, 170));
+  return lines.length ? lines : ["No revised plan generated yet."];
 }
 
 function Admin({ rows, metrics, refresh }: { rows: AdminRow[]; metrics: Record<string, number>; refresh: () => void }) {
@@ -862,10 +1178,10 @@ function Admin({ rows, metrics, refresh }: { rows: AdminRow[]; metrics: Record<s
           <div className="admin-row" key={row.critique.id}>
             <span>{new Date(row.critique.createdAt).toLocaleDateString()}</span>
             <span>{row.evaluation?.initiativeName || row.submission?.targetUser || "Quick critique"}</span>
-            <span>{row.critique.primaryRiskType}</span>
+            <span>{row.critique.productRiskType ?? row.critique.primaryRiskType}</span>
             <span>{row.critique.experimentFit}</span>
-            <span>{row.submission?.proposedExperiment}</span>
-            <span>{row.critique.recommendedExperiments[0]?.name}</span>
+            <span>{plainPreview(row.submission?.proposedExperiment, 120)}</span>
+            <span>{plainPreview(row.critique.recommendedExperiments[0]?.name, 70)}</span>
             <span>{row.feedback?.didChangePlan || row.evaluation?.selfReportedChangedPlan ? "Yes" : "No"}</span>
             <span>{row.feedback?.rating || row.evaluation?.selfReportedValue || "-"}</span>
           </div>

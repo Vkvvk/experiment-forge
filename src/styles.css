@@ -395,6 +395,83 @@ a {
   font-size: 16px;
 }
 
+.scan-progress {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(226, 200, 84, 0.24);
+  border-radius: 20px;
+  background: rgba(226, 200, 84, 0.07);
+}
+
+.scan-progress.compact {
+  margin-top: 12px;
+}
+
+.scan-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scan-progress-head span {
+  color: var(--ink);
+  font-weight: 850;
+}
+
+.scan-progress-head em {
+  color: var(--accent);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.scan-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.scan-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  transition: width 500ms ease;
+}
+
+.scan-progress p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.scan-step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scan-step-list span {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--soft);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.scan-step-list span.active {
+  border-color: rgba(226, 200, 84, 0.42);
+  color: var(--accent);
+  background: rgba(226, 200, 84, 0.1);
+}
+
 .feature-strip {
   width: min(860px, 100%);
   display: grid;
@@ -724,8 +801,10 @@ textarea:focus {
 
 .xray-summary,
 .diagnosis-panel,
+.action-plan-panel,
 .xray-confirm,
-.correction-panel {
+.correction-panel,
+.learning-plan-card {
   position: relative;
   overflow: hidden;
   padding: 22px;
@@ -746,9 +825,10 @@ textarea:focus {
   grid-template-columns: 64px 1fr;
   gap: 14px;
   align-items: center;
-  min-height: 142px;
+  min-height: 132px;
   padding-right: 16px;
   border-right: 1px solid var(--line);
+  min-width: 0;
 }
 
 .summary-cell:last-child {
@@ -786,6 +866,10 @@ textarea:focus {
 .summary-cell p:not(.eyebrow) {
   margin: 0;
   color: var(--muted);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .diagnosis-panel {
@@ -820,6 +904,12 @@ textarea:focus {
 
 .diagnosis-grid p {
   color: var(--muted);
+}
+
+.diagnosis-grid strong,
+.diagnosis-grid p,
+.next-experiment h3 {
+  overflow-wrap: anywhere;
 }
 
 .next-experiment {
@@ -867,6 +957,63 @@ textarea:focus {
   display: grid;
   gap: 4px;
   color: var(--muted);
+}
+
+.action-plan-panel {
+  display: grid;
+  grid-template-columns: 0.95fr 1.2fr 0.85fr;
+  gap: 16px;
+}
+
+.action-plan-panel h2 {
+  margin-bottom: 8px;
+}
+
+.action-plan-panel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.compact-steps {
+  display: grid;
+  gap: 10px;
+}
+
+.compact-step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--soft);
+}
+
+.compact-step span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #080808;
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.signal-note {
+  padding: 14px;
+  border: 1px solid rgba(226, 200, 84, 0.22);
+  border-radius: 20px;
+  background: rgba(226, 200, 84, 0.08);
+}
+
+.signal-note strong {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--accent);
 }
 
 .xray-confirm {
@@ -981,6 +1128,131 @@ pre {
   line-height: 1.5;
 }
 
+.learning-plan-card {
+  display: grid;
+  gap: 14px;
+}
+
+.learning-plan-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.learning-plan-head h2 {
+  margin-bottom: 0;
+}
+
+.plan-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.plan-preview-item {
+  margin: 0;
+  min-height: 58px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--soft);
+}
+
+.plan-preview-item p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.read-full-link {
+  width: fit-content;
+  min-height: 0;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.read-full-link:hover {
+  color: var(--accent-dark);
+  text-decoration: underline;
+}
+
+.summary-cell .read-full-link,
+.signal .read-full-link,
+.compact-step .read-full-link,
+.plan-preview-item .read-full-link {
+  margin-top: 6px;
+}
+
+.compact-step .read-full-link {
+  grid-column: 2;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.76);
+  backdrop-filter: blur(10px);
+}
+
+.detail-modal {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: min(760px, calc(100svh - 48px));
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid rgba(226, 200, 84, 0.28);
+  border-radius: 28px;
+  background: #10100d;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.62);
+}
+
+.detail-modal h2 {
+  max-width: calc(100% - 46px);
+  margin: 4px 0 16px;
+  font-size: clamp(26px, 4vw, 40px);
+  line-height: 1.08;
+}
+
+.modal-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.modal-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.modal-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--raised);
+  color: var(--ink);
+}
+
 .metrics-row {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1033,6 +1305,12 @@ pre {
   font-size: 13px;
 }
 
+.admin-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .admin-head {
   position: sticky;
   top: 0;
@@ -1049,6 +1327,8 @@ pre {
   .metrics-row,
   .xray-summary,
   .diagnosis-grid,
+  .action-plan-panel,
+  .plan-preview,
   .correction-grid,
   .feature-strip {
     grid-template-columns: 1fr;

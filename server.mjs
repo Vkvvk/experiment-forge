@@ -11,9 +11,10 @@ dotenv.config({ path: ".env.local", override: true });
 const app = express();
 const port = Number(process.env.PORT ?? 5173);
 const host = process.env.HOST ?? "0.0.0.0";
-const model = process.env.OPENROUTER_MODEL ?? "minimax/minimax-m3";
+const model = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash";
 const dataDir = path.resolve("data");
 const dbPath = path.join(dataDir, "db.json");
+const distDir = path.resolve("dist");
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -63,6 +64,10 @@ const critiqueJsonSchema = {
     type: "object",
     additionalProperties: false,
     required: [
+      "proposedExperimentSummary",
+      "proposedExperimentType",
+      "productRiskType",
+      "experimentDesignIssue",
       "primaryRiskType",
       "riskExplanation",
       "weakestAssumption",
@@ -77,6 +82,13 @@ const critiqueJsonSchema = {
       "confidenceExplanation",
     ],
     properties: {
+      proposedExperimentSummary: { type: "string" },
+      proposedExperimentType: { type: "string" },
+      productRiskType: { type: "string", enum: ["value", "usability", "feasibility", "viability", "mixed"] },
+      experimentDesignIssue: {
+        type: "string",
+        enum: ["wrong_method", "vague_criteria", "missing_decision", "weak_evidence", "premature_behavior_test", "needs_calibration", "none"],
+      },
       primaryRiskType: { type: "string", enum: ["value", "usability", "feasibility", "viability", "mixed"] },
       riskExplanation: { type: "string" },
       weakestAssumption: { type: "string" },
@@ -188,12 +200,21 @@ app.get("/api/export", (_req, res) => {
   res.send(JSON.stringify(db, null, 2));
 });
 
-const vite = await createViteServer({
-  server: { middlewareMode: true, host },
-  appType: "spa",
-});
-
-app.use(vite.middlewares);
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.use((req, res, next) => {
+    if (req.method === "GET" && !req.path.startsWith("/api/")) {
+      return res.sendFile(path.join(distDir, "index.html"));
+    }
+    next();
+  });
+} else {
+  const vite = await createViteServer({
+    server: { middlewareMode: true, host },
+    appType: "spa",
+  });
+  app.use(vite.middlewares);
+}
 
 app.listen(port, host, () => {
   console.log(`Experiment X-Ray running at http://${host}:${port}/`);
@@ -232,18 +253,22 @@ Baseline rationale: ${evaluationContext.baselineRationale}
 Baseline success criteria: ${evaluationContext.baselineSuccessCriteria}
 Baseline stop/change criteria: ${evaluationContext.baselineStopCriteria}` : ""}
 
-Return a structured critique with:
-1. primary risk type
-2. explanation of risk type
-3. weakest assumption
-4. why this is the weakest assumption
-5. fit rating of the proposed experiment: good, partial, or poor
-6. explanation of experiment fit
-7. up to 3 better experiment recommendations
-8. pass criteria
-9. fail criteria
-10. revised learning plan
-11. confidence level and explanation`;
+Return structured JSON with:
+- proposedExperimentSummary: one sentence based only on the Proposed experiment field
+- proposedExperimentType: short label based only on the Proposed experiment field
+- productRiskType
+- experimentDesignIssue
+- primaryRiskType: same as productRiskType unless mixed is more accurate
+- riskExplanation: one sentence
+- weakestAssumption
+- assumptionExplanation: one sentence
+- experimentFit: good, partial, or poor
+- experimentFitExplanation: one sentence
+- recommendedExperiments: up to 3
+- passCriteria: max 3 bullets for the top recommended experiment only
+- failCriteria: max 3 bullets for the top recommended experiment only
+- revisedLearningPlan: max 120 words, no markdown table
+- confidence and confidenceExplanation`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
@@ -275,36 +300,102 @@ Return a structured critique with:
 }
 
 function systemPrompt() {
-  return `You are an expert product discovery coach. Your job is to help product managers de-risk product ideas before engineering build.
-You are especially good at distinguishing:
+  return `You are an expert product discovery coach. Your job is to critique experiment plans before teams commit build, recruiting, or calendar time.
+
+Follow this sequence silently:
+1. Parse what experiment the PM is actually proposing.
+2. Identify the unresolved product or experiment-design risk.
+3. Decide whether the proposed experiment answers that risk.
+4. Recommend the smallest stronger next experiment.
+5. Output concise, UI-ready language.
+
+Risk definitions:
 - value risk: whether users care enough to choose/use/buy/change behavior
 - usability risk: whether users can understand/use the solution
-- feasibility risk: whether the team can build it
+- feasibility risk: whether the team can build or operate it
 - viability risk: whether it works for the business/legal/operations model
-Be direct, practical, and critical without being rude.
-Your job is not to make the PM feel good. Your job is to help them choose the right experiment.
-Strongly flag cases where a PM is proposing usability testing when the real unresolved risk is value/desirability.
-Do not recommend more than 3 experiments.
-Always pick one weakest assumption.
-Always provide clear pass/fail criteria.
-Output concise, structured, copyable language.`;
+
+Important:
+- Do not keyword-match. If the input mentions usability as an anti-pattern, do not assume the proposed experiment is a usability test.
+- Base proposedExperimentType and proposedExperimentSummary only on the Proposed experiment field.
+- Quote or summarize the actual proposed experiment before judging fit.
+- If the product being tested is an AI critic, scorer, rubric, evaluator, or coach, check calibration/accuracy before recommending a PM behavior-change test.
+- If the product being tested is an AI critic, scorer, rubric, evaluator, or coach and no calibration evidence is provided, set experimentDesignIssue to needs_calibration and experimentFit to partial unless the proposed experiment is calibration itself.
+- If the proposed experiment is directionally right but says "see what happens", lacks a numeric threshold, lacks an observable behavior, or lacks a decision consequence, set experimentDesignIssue to vague_criteria, not wrong_method.
+- If the proposed experiment adds a button, link, request access CTA, opt-in, waitlist, or workflow entry point to measure demand before building, classify proposedExperimentType as a fake-door test.
+- If a fake-door test is aimed at value/demand risk but lacks thresholds or decision consequences, set experimentFit to partial, not poor, unless the signal is purely opinions or satisfaction.
+- Prefer decision-quality evidence over satisfaction, opinions, usage vanity metrics, or UI feedback.
+- Pass/fail criteria must belong to the top recommended experiment only; do not mix criteria from multiple experiment types.
+- For value/demand tests, pass/fail criteria must be observable behaviors with numbers and decision consequences; do not use qualitative feedback, satisfaction, preference, or usability as pass/fail criteria.
+- Pass/fail criteria must be evidence thresholds only, not next actions. Do not write "if pass, then..." or "if fail, interview..." inside criteria.
+- Fail criteria should usually be the inverse of pass criteria using the same observable metric.
+- Do not write conditional criteria for alternate methods. If the top recommendation is a fake-door test, criteria must only measure fake-door behaviors such as click, opt-in, request access, signup, or follow-through.
+- Do not recommend usability testing as a pass/fail criterion for value, demand, or calibration tests.
+- Strongly flag usability testing when it is actually proposed for unresolved value/desirability risk.
+- Be direct, practical, concise, and critical without being rude.
+- Do not recommend more than 3 experiments.
+- Always pick one weakest assumption.
+- Always provide clear pass/fail criteria.
+- Do not echo the user's pasted plan.
+- Do not use markdown tables.
+- Keep each explanation under 35 words.
+- Keep revisedLearningPlan under 120 words.`;
 }
 
 function sanitizeCritique(input) {
+  const productRiskType = normalizeRiskType(input?.productRiskType ?? input?.primaryRiskType);
   return {
-    primaryRiskType: input?.primaryRiskType ?? "mixed",
-    riskExplanation: input?.riskExplanation ?? "",
-    weakestAssumption: input?.weakestAssumption ?? "",
-    assumptionExplanation: input?.assumptionExplanation ?? "",
+    proposedExperimentSummary: limitText(input?.proposedExperimentSummary ?? "", 220),
+    proposedExperimentType: limitText(input?.proposedExperimentType ?? "", 80),
+    productRiskType,
+    experimentDesignIssue: normalizeExperimentDesignIssue(input?.experimentDesignIssue),
+    primaryRiskType: normalizeRiskType(input?.primaryRiskType ?? productRiskType),
+    riskExplanation: limitText(input?.riskExplanation ?? "", 280),
+    weakestAssumption: limitText(input?.weakestAssumption ?? "", 260),
+    assumptionExplanation: limitText(input?.assumptionExplanation ?? "", 320),
     experimentFit: input?.experimentFit ?? "partial",
-    experimentFitExplanation: input?.experimentFitExplanation ?? "",
-    recommendedExperiments: Array.isArray(input?.recommendedExperiments) ? input.recommendedExperiments.slice(0, 3) : [],
-    passCriteria: Array.isArray(input?.passCriteria) ? input.passCriteria : [],
-    failCriteria: Array.isArray(input?.failCriteria) ? input.failCriteria : [],
-    revisedLearningPlan: input?.revisedLearningPlan ?? "",
+    experimentFitExplanation: limitText(input?.experimentFitExplanation ?? "", 320),
+    recommendedExperiments: Array.isArray(input?.recommendedExperiments) ? input.recommendedExperiments.slice(0, 3).map(compactExperiment) : [],
+    passCriteria: Array.isArray(input?.passCriteria) ? input.passCriteria.slice(0, 3).map((item) => limitText(item, 220)) : [],
+    failCriteria: Array.isArray(input?.failCriteria) ? input.failCriteria.slice(0, 3).map((item) => limitText(item, 220)) : [],
+    revisedLearningPlan: limitText(input?.revisedLearningPlan ?? "", 900),
     confidence: input?.confidence ?? "medium",
-    confidenceExplanation: input?.confidenceExplanation ?? "",
+    confidenceExplanation: limitText(input?.confidenceExplanation ?? "", 260),
   };
+}
+
+function normalizeRiskType(value) {
+  return ["value", "usability", "feasibility", "viability", "mixed"].includes(value) ? value : "mixed";
+}
+
+function normalizeExperimentDesignIssue(value) {
+  return [
+    "wrong_method",
+    "vague_criteria",
+    "missing_decision",
+    "weak_evidence",
+    "premature_behavior_test",
+    "needs_calibration",
+    "none",
+  ].includes(value)
+    ? value
+    : "none";
+}
+
+function compactExperiment(experiment) {
+  return {
+    name: limitText(experiment?.name ?? "", 70),
+    purpose: limitText(experiment?.purpose ?? "", 220),
+    whyItFits: limitText(experiment?.whyItFits ?? "", 220),
+    howToRun: Array.isArray(experiment?.howToRun) ? experiment.howToRun.slice(0, 3).map((step) => limitText(step, 180)) : [],
+    signalToLookFor: limitText(experiment?.signalToLookFor ?? "", 220),
+  };
+}
+
+function limitText(value, max) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trim()}…`;
 }
 
 function readDb() {
